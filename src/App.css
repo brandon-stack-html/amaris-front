@@ -250,3 +250,19 @@ body {
   font-size: 18px;
   color: #555;
 }
+
+.success-message {
+  background-color: #d4edda; /* Fondo verde claro */
+  color: #155724; /* Texto verde oscuro */
+  border: 1px solid #c3e6cb; /* Borde verde */
+  border-radius: 5px; /* Bordes redondeados */
+  padding: 10px; /* Espaciado interno */
+  display: flex; /* Para alinear icono y texto */
+  align-items: center; /* Centra verticalmente */
+  margin: 10px 0; /* Margen superior e inferior */
+}
+
+.success-message p {
+  margin: 0; /* Elimina margen del párrafo */
+  padding-left: 8px; /* Espaciado entre icono y texto */
+}

@@ -1,110 +1,107 @@
-import Table from '../components/Table';
-import { useEffect, useState } from 'react';
-import { fetchFundsData, FundsData, Fund } from '../services/fundsService';
-import { getClientBalanceByPK } from '../services/clientService';
-import { subscribeToFund } from '../services/subscriptionService';
-import { cancelFund } from '../services/cancelService';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import Table from "../components/Table";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { fetchFundsData, Fund } from "../services/fundsService";
+import { getClientBalanceByPK } from "../services/clientService";
+import { subscribeToFund } from "../services/subscriptionService";
+import { cancelFund } from "../services/cancelService";
 import { useSearchParams } from "react-router-dom";
 
 const FundsPage = () => {
   const [searchParams] = useSearchParams();
-  const client = searchParams.get('client') ?? "1"; // Si no hay 'client', usa "1"
+  const client = searchParams.get("client") ?? "1"; // Si no hay 'client', usa "1"
+
+  // Consultar los fondos
+  const {
+    data: fundsData,
+    isLoading: isFundsLoading,
+    error: fundsError,
+    refetch: refetchFunds,
+  } = useQuery({
+    queryKey: ["funds", client],
+    queryFn: () => fetchFundsData(Number(client)),
+    enabled: !!client,
+  });
+
+  // Consultar el saldo
+  const {
+    data: balanceData,
+    isLoading: isBalanceLoading,
+    error: balanceError,
+    refetch: refetchBalance,
+  } = useQuery({
+    queryKey: ["balance", client],
+    queryFn: () => getClientBalanceByPK(client),
+    enabled: !!client,
+  });
 
   const [balance, setBalance] = useState(0);
-  const [fundsData, setFundsData] = useState<FundsData | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [showErrorCard, setShowErrorCard] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false); // Estado para el mensaje de éxito
   const [error, setError] = useState<string | null>(null);
-  const [showErrorCard, setShowErrorCard] = useState<boolean>(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [data, balance] = await Promise.all([
-          fetchFundsData(Number(client)),
-          getClientBalanceByPK(client),
-        ]);
-        setFundsData(data);
-        setBalance(Number(balance));
-      } catch (err) {
-        console.error(err);
-        setError('Error al cargar los fondos');
-        setShowErrorCard(true);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    if (balanceData) {
+      setBalance(Number(balanceData));
+    }
+  }, [balanceData]);
 
-    fetchData();
-  }, [client]);
+  const subscribeMutation = useMutation({
+    mutationFn: subscribeToFund,
+    onSuccess: () => {
+      refetchBalance();
+      refetchFunds();
+      setShowSuccessMessage(true); // Mostrar mensaje de éxito
+      setTimeout(() => setShowSuccessMessage(false), 3000); // Ocultar mensaje después de 3 segundos
+    },
+    onError: (error: any) => {
+      console.error("Error en la suscripción:", error);
+      setError(error.message || "Error al suscribirse al fondo");
+      setShowErrorCard(true);
+    },
+  });
 
-  if (isLoading) return <div>Cargando...</div>;
+  const cancelMutation = useMutation({
+    mutationFn: cancelFund,
+    onSuccess: () => {
+      refetchBalance();
+      refetchFunds();
+      setShowSuccessMessage(true); // Mostrar mensaje de éxito al cancelar
+      setTimeout(() => setShowSuccessMessage(false), 3000); // Ocultar mensaje después de 3 segundos
+    },
+    onError: (error: any) => {
+      console.error("Error al cancelar la suscripción:", error);
+      setError(error.message || "Error al cancelar la suscripción");
+      setShowErrorCard(true);
+    },
+  });
+
+  if (isFundsLoading || isBalanceLoading) return <div>Cargando...</div>;
+
+  // Muestra los errores de las consultas
+  if (fundsError) {
+    console.error("Error en la consulta de fondos:", fundsError);
+    return <div>Error al cargar los fondos: {fundsError.message}</div>;
+  }
+
+  if (balanceError) {
+    console.error("Error en la consulta de saldo:", balanceError);
+    return <div>Error al cargar el saldo: {balanceError.message}</div>;
+  }
 
   const availableFunds = fundsData?.notSubscribedFunds || [];
   const subscribedFunds = fundsData?.subscriptions || [];
 
-  const updateBalance = async () => {
-    try {
-      const balance = await getClientBalanceByPK(client);
-      setBalance(Number(balance));
-    } catch (err) {
-      console.error('Error al actualizar el saldo:', err);
-    }
+  const handleFundClick = async (item: Fund) => {
+    await subscribeMutation.mutateAsync({
+      userId: client,
+      fundId: item.fundId,
+    });
   };
 
-  const handleFundClick = async (item: typeof availableFunds[0]) => {
-    try {
-      const response = await subscribeToFund({ userId: client, fundId: item.fundId });
-      if (response.status === 200) {
-        // Asegúrate de obtener el nuevo objeto que se debe añadir a las suscripciones
-        const newFund = { ...item, amount: item.MinimumInvestment, timestamp: new Date().toISOString() };
-          
-        // Actualiza fundsData de manera correcta
-        setFundsData(prevData => {
-          // const updatedAvailableFunds = prevData?.notSubscribedFunds.filter(fund => fund.fundId !== item.fundId) || [];
-          const newSubscribedFunds = [...(prevData?.subscriptions || []), newFund];
-          return {
-            ...prevData,
-            // notSubscribedFunds: updatedAvailableFunds,
-            subscriptions: newSubscribedFunds,
-          } as FundsData;
-        });
-
-        await updateBalance(); // Actualiza el saldo después de suscribirse
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Error al suscribirse al fondo');
-      }
-    } catch (err) {
-      console.error('Error en la suscripción:', err);
-      setError('Error al suscribirse al fondo');
-      setShowErrorCard(true);
-    }
-  };
-
-  const handleSubscribedClick = async (item: typeof subscribedFunds[0]) => {
-    try {
-      const response = await cancelFund({ userId: client, fundId: item.fundId });
-      if (response.status === 200) {
-        // Actualiza fundsData de manera correcta
-        setFundsData(prevData => {
-          const updatedSubscribedFunds = prevData?.subscriptions.filter(fund => fund.fundId !== item.fundId) || [];
-          const newAvailableFunds = [...(prevData?.notSubscribedFunds || []), { ...item }];
-          return {
-            ...prevData,
-            subscriptions: updatedSubscribedFunds,
-            notSubscribedFunds: newAvailableFunds,
-          } as FundsData;
-        });
-        await updateBalance(); // Actualiza el saldo después de cancelar la suscripción
-      } else {
-        throw new Error('No se pudo cancelar la suscripción. Por favor, verifica los datos e inténtalo de nuevo.');
-      }
-    } catch (err) {
-      console.error(err);
-      setError('Error al cancelar la suscripción');
-      setShowErrorCard(true);
-    }
+  const handleSubscribedClick = async (item: Fund) => {
+    await cancelMutation.mutateAsync({ userId: client, fundId: item.fundId });
   };
 
   // Función para cerrar la tarjeta de error
@@ -121,6 +118,15 @@ const FundsPage = () => {
           <button onClick={closeErrorCard}>Cerrar</button>
         </div>
       )}
+      {showSuccessMessage && (
+        <div className="success-message">
+          <span role="img" aria-label="success">
+            ✅
+          </span>{" "}
+          {/* Icono de éxito */}
+          <p>Correo enviado exitosamente!</p>
+        </div>
+      )}
       <div className="saldo-card">
         <h2>Saldo Disponible: ${balance}</h2>
       </div>
@@ -128,9 +134,9 @@ const FundsPage = () => {
       <Table<Fund>
         data={availableFunds}
         columns={[
-          { header: 'ID', accessor: 'fundId' },
-          { header: 'Nombre', accessor: 'name' },
-          { header: 'Valor', accessor: 'MinimumInvestment' },
+          { header: "ID", accessor: "fundId" },
+          { header: "Nombre", accessor: "name" },
+          { header: "Valor", accessor: "MinimumInvestment" },
         ]}
         actionLabel="Suscribirse"
         onActionClick={handleFundClick}
@@ -139,9 +145,9 @@ const FundsPage = () => {
       <Table<Fund>
         data={subscribedFunds}
         columns={[
-          { header: 'ID', accessor: 'fundId' },
-          { header: 'Valor', accessor: 'amount' },
-          { header: 'Fecha de Suscripción', accessor: 'timestamp' },
+          { header: "ID", accessor: "fundId" },
+          { header: "Valor", accessor: "amount" },
+          { header: "Fecha de Suscripción", accessor: "timestamp" },
         ]}
         actionLabel="Cancelar Suscripción"
         onActionClick={handleSubscribedClick}

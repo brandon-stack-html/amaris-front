@@ -8,6 +8,9 @@ import FundsPage from './pages/FundsPage'; // Asegúrate de importar las página
 import ClientsPage from './pages/ClientsPage';
 import ServicesPage from './pages/ServicesPage';
 import ProvidersPage from './pages/ProvidersPage';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const queryClient = new QueryClient();
 
 // Define las rutas
 const router = createBrowserRouter([
@@ -39,5 +42,7 @@ const router = createBrowserRouter([
 const container = document.getElementById("root")!;
 const root = createRoot(container);
 root.render(
-  <RouterProvider router={router} />
+  <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+  </QueryClientProvider>
 );
